@@ -8,7 +8,7 @@ belongs to another message**:
 - a message sent under a Context is written with the Context of whichever sender woke the outbound stream, not its own.
 
 Akka's own machinery then keeps such a Context alive. Kamon captures the current Context on every `scheduleOnce`, and fixed-delay
-timers (the sharding replicator's gossip, a `ShardedDaemonProcess`'s keep-alive) are chains of `scheduleOnce`. In a production
+timers (the sharding replicator's gossip, a `ShardedDaemonProcess`'s keep-alive) are chains of `scheduleOnce`. In a staging
 cluster one request's trace kept growing for days (875k spans, 957 MB), and every background actor's log line carried that
 request's MDC.
 
