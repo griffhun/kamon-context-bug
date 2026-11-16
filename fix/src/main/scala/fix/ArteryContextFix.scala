@@ -9,11 +9,12 @@ import kanela.agent.libs.net.bytebuddy.asm.Advice
 import scala.annotation.static
 
 /**
- * Proposed fix for Kamon's Artery (Akka 2.6) context propagation, enabled per part by the FIX env var ("inbound", "outbound").
+ * Proposed fix for Kamon's Artery context propagation (Akka 2.6 and Pekko), enabled per part by the FIX env var
+ * ("inbound", "outbound"). Registered as Kanela modules in reference.conf.
  *
- * inbound:  Kamon mixes a Context into the POOLED akka.remote.artery.ReusableInboundEnvelope and only sets it in
- *           KamonRemoteInstrument.remoteReadMetadata, which Akka calls only when the message carries a Context. A message sent
- *           without one is then dispatched under the Context of the previous message that used the same pooled envelope.
+ * inbound:  Kamon mixes a Context into the POOLED ReusableInboundEnvelope and only sets it in
+ *           KamonRemoteInstrument.remoteReadMetadata, which is called only when the message carries a Context. A message
+ *           sent without one is then dispatched under the Context of the previous message that used the same pooled envelope.
  *           Fix: reset it in ReusableInboundEnvelope.init (the Decoder calls init before the Deserializer reads the metadata).
  *
  * outbound: KamonRemoteInstrument.remoteWriteMetadata writes Kamon.currentContext() of the outbound stream's thread, i.e. the
@@ -21,20 +22,23 @@ import scala.annotation.static
  *           ReusableOutboundEnvelope.init (every send path calls it, not only Association.createOutboundEnvelope) and make it
  *           current while MessageSerializer.serializeForArtery writes the envelope, so remoteWriteMetadata writes the right one.
  */
-class ArteryContextFix extends InstrumentationBuilder {
+abstract class ArteryContextFix(remotePackage: String) extends InstrumentationBuilder {
   private val parts = Option(System.getenv("FIX")).getOrElse("").split(',').map(_.trim).toSet
 
   if (parts("inbound"))
-    onType("akka.remote.artery.ReusableInboundEnvelope")
+    onType(s"$remotePackage.artery.ReusableInboundEnvelope")
       .advise(method("init"), classOf[ResetContextOnInboundInit])
 
   if (parts("outbound")) {
-    onType("akka.remote.artery.ReusableOutboundEnvelope")
+    onType(s"$remotePackage.artery.ReusableOutboundEnvelope")
       .advise(method("init"), classOf[CaptureContextOnOutboundInit])
-    onType("akka.remote.MessageSerializer$")
+    onType(s"$remotePackage.MessageSerializer$$")
       .advise(method("serializeForArtery"), classOf[SerializeUnderEnvelopeContext])
   }
 }
+
+final class AkkaArteryContextFix extends ArteryContextFix("akka.remote")
+final class PekkoArteryContextFix extends ArteryContextFix("org.apache.pekko.remote")
 
 class ResetContextOnInboundInit
 object ResetContextOnInboundInit {
